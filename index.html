@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Compiler Visualizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #e5eaf2; margin: 0; padding-bottom: 50px; }
+        .container { max-width: 900px; margin: 30px auto; background: #f8fafc; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); overflow: hidden; }
+        .header { background: linear-gradient(135deg,#2563eb,#1e3a8a); color: white; padding: 20px; text-align: center; }
+        .editor { background: #0f172a; margin: 15px; border-radius: 10px; padding: 10px; }
+        textarea { width: 100%; height: 120px; background: transparent; color: #e2e8f0; border: none; outline: none; font-family: 'Courier New', monospace; resize: none; font-size: 14px; }
+        .btn { display: block; width: 60%; margin: 10px auto; background: #22c55e; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 15px; cursor: pointer; transition: 0.3s; font-weight: 600; }
+        .btn:hover { background: #16a34a; }
+        
+        .card { background: white; margin: 15px; padding: 18px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        h3 { margin-top: 0; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+        td, th { border: 1px solid #e2e8f0; padding: 8px; text-align: left; }
+        th { background: #f1f5f9; }
+
+        pre { background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; font-size: 13px; overflow-x: auto; min-height: 40px; }
+        .opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .opt-label { font-weight: 600; font-size: 12px; color: #64748b; text-transform: uppercase; margin-bottom: 5px; display: block; }
+        
+        .hidden { display: none; }
+        #mermaid-graph { display: flex; justify-content: center; background: #fff; padding: 20px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header"><h2>Compiler Visualizer</h2></div>
+    
+    <div class="editor">
+        <textarea id="code">int a;
+int b;
+a = 5 + 10;
+b = a * 2;</textarea>
+    </div>
+    
+    <button class="btn" onclick="compileCode()">Compile & Analyze</button>
+
+    <div id="results" class="hidden">
+        
+        <div class="card">
+            <h3>Lexical Analysis</h3>
+            <table id="tokenTable"></table>
+        </div>
+
+        <div class="card">
+            <h3>Parse Tree</h3>
+            <div id="mermaid-graph" class="mermaid"></div>
+        </div>
+
+        <div class="card">
+            <h3>Symbol Table</h3>
+            <table id="symbolTable"></table>
+        </div>
+
+        <div class="card">
+            <h3>Intermediate Code (TAC)</h3>
+            <pre id="ic-display"></pre>
+        </div>
+
+        <div class="card">
+            <h3>Code Optimization</h3>
+            <div class="opt-grid">
+                <div>
+                    <span class="opt-label">Before Optimization</span>
+                    <pre id="opt-before"></pre>
+                </div>
+                <div>
+                    <span class="opt-label">After (Constant Folding)</span>
+                    <pre id="opt-after"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getTokenType(token){
+    const keywords = ["int","float","char","double","if","else","while","return"];
+    const operators = ["+","-","*","/","=","<",">","==","!="];
+    if(keywords.includes(token)) return "Keyword";
+    if(/^\d+(\.\d+)?$/.test(token)) return "Number";
+    if(operators.includes(token)) return "Operator";
+    if(/[;(){},]/.test(token)) return "Symbol";
+    return "Identifier";
+}
+
+function compileCode(){
+    const codeInput = document.getElementById("code").value;
+    const resultsDiv = document.getElementById("results");
+    resultsDiv.classList.remove("hidden");
+
+    // --- Lexical Analysis ---
+    const tokens = codeInput.match(/\w+|[=+\-*/;{}()<>!]+/g) || [];
+    let tokenHtml = "<tr><th>#</th><th>Token</th><th>Type</th></tr>";
+    let symbolHtml = "<tr><th>Name</th><th>Type</th></tr>";
+    let tokenIdx = 1;
+    let symbols = new Set();
+
+    tokens.forEach(token => {
+        let type = getTokenType(token);
+        tokenHtml += `<tr><td>${tokenIdx++}</td><td><code>${token}</code></td><td>${type}</td></tr>`;
+        if(type === "Identifier") symbols.add(token);
+    });
+    symbols.forEach(sym => symbolHtml += `<tr><td>${sym}</td><td>int</td></tr>`);
+    document.getElementById("tokenTable").innerHTML = tokenHtml;
+    document.getElementById("symbolTable").innerHTML = symbolHtml;
+
+    // --- ICG (Three-Address Code) Generation ---
+    let lines = codeInput.split(';').map(l => l.trim()).filter(l => l.length > 0);
+    let tac = [];
+    let tempCount = 1;
+    let tree = { name: "Program", type: "root", children: [] };
+
+    lines.forEach(line => {
+        if (line.startsWith("int ") || line.startsWith("float ")) {
+            let parts = line.split(/\s+/);
+            tree.children.push({
+                name: "VarDecl", type: "stmt",
+                children: [{ name: parts[0], type: "leaf" }, { name: parts[1], type: "leaf" }]
+            });
+            return;
+        }
+
+        if (line.includes('=')) {
+            let [lhs, rhs] = line.split('=').map(s => s.trim());
+            let opMatch = rhs.match(/(.+?)\s*([\+\-\*\/])\s*(.+)/);
+
+            if (opMatch) {
+                let tName = `t${tempCount++}`;
+                let arg1 = opMatch[1].trim();
+                let op = opMatch[2];
+                let arg2 = opMatch[3].trim();
+                
+                // Add to TAC
+                tac.push(`${tName} = ${arg1} ${op} ${arg2}`);
+                tac.push(`${lhs} = ${tName}`);
+
+                // Build Parse Tree
+                tree.children.push({
+                    name: "Assign", type: "stmt",
+                    children: [
+                        { name: lhs, type: "leaf" },
+                        { name: op, type: "op", children: [{name: arg1, type: "leaf"}, {name: arg2, type: "leaf"}]}
+                    ]
+                });
+            } else {
+                tac.push(`${lhs} = ${rhs}`);
+                tree.children.push({
+                    name: "Assign", type: "stmt",
+                    children: [{ name: lhs, type: "leaf" }, { name: rhs, type: "leaf" }]
+                });
+            }
+        }
+    });
+
+    const tacContent = tac.join('\n');
+    document.getElementById("ic-display").innerText = tacContent;
+    document.getElementById("opt-before").innerText = tacContent;
+
+    // --- Optimization (Constant Folding) ---
+    let optimizedTac = tac.map(line => {
+        // Pattern to find expressions like "t1 = 5 + 10"
+        return line.replace(/=\s*(\d+)\s*([\+\-\*\/])\s*(\d+)/, (match, p1, op, p2) => {
+            let res;
+            p1 = parseFloat(p1);
+            p2 = parseFloat(p2);
+            if (op === '+') res = p1 + p2;
+            else if (op === '-') res = p1 - p2;
+            else if (op === '*') res = p1 * p2;
+            else if (op === '/') res = p1 / p2;
+            return "= " + res;
+        });
+    }).join('\n');
+
+    document.getElementById("opt-after").innerText = optimizedTac;
+
+    // --- Render Tree ---
+    const mermaidElement = document.getElementById("mermaid-graph");
+    mermaidElement.removeAttribute('data-processed');
+    mermaidElement.innerHTML = objectToMermaid(tree);
+    mermaid.run();
+}
+
+function objectToMermaid(node){
+    let output = "graph TD\n";
+    output += "classDef root fill:#2563eb,color:#fff,stroke:#1e3a8a,stroke-width:2px;\n";
+    output += "classDef stmt fill:#ecfdf5,color:#065f46,stroke:#10b981,stroke-width:1.5px;\n";
+    output += "classDef op fill:#f3e8ff,color:#6b21a8,stroke:#a855f7,stroke-width:1px;\n";
+    output += "classDef leaf fill:#fffbeb,color:#92400e,stroke:#f59e0b,stroke-width:1px;\n\n";
+
+    let count = 0;
+    function traverse(n, parentId=null){
+        let nodeId = "n" + (count++);
+        let label = n.name.replace(/"/g, ''); 
+        output += `  ${nodeId}["${label}"]\n`;
+        output += `  class ${nodeId} ${n.type}\n`;
+        if(parentId) output += `  ${parentId} --- ${nodeId}\n`;
+        if(n.children) n.children.forEach(c => traverse(c, nodeId));
+    }
+    traverse(node);
+    return output;
+}
+</script>
+
+</body>
+</html>
